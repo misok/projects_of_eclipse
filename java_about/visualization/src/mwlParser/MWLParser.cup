@@ -1,0 +1,187 @@
+/*   Information Leak Visualizer
+ *   Copyright (C) 2004 - 2005  ETH Zurich
+ *   Information Security Group
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ */
+
+// CUP specification for MWL (no actions)
+
+package mwlParser;
+
+import java_cup.runtime.*;
+import ast.*;
+
+/* Preliminaries to set up and use the scanner.  */
+
+/* Terminals (tokens returned by the scanner). */
+terminal			LPAREN, RPAREN, LSQBRACK, RSQBRACK, LBRACE, RBRACE;
+terminal			SEMI, COMMA, ASSIGN, COLON, PERIOD; 
+terminal			PLUS, MINUS, TIMES, MOD, DIV;
+terminal			LESS, LESS_EQUAL, GREATER, GREATER_EQUAL, EQUAL_EQUAL;
+terminal			NOT_EQUAL, AND, OR;
+terminal			SKIP, IF, THEN, ELSE, END, WHILE, DO, FORK, LENGTH;
+terminal Boolean	TRUE, FALSE;
+terminal String		INT, BOOL;			// types of variables
+terminal String		HIGH, LOW;			// security types of variables
+terminal			USER;
+terminal String		IDENTIFIER;
+terminal Integer	NUMBER;
+
+/* Non terminals */
+non terminal        program, progVector, command, decl, varDecl, arrDecl;
+non terminal	    identifier, expression, boolExp, operator, compOp;
+non terminal 	    atom, arrField, type, secDomain;
+
+/* Precedences */
+precedence left OR;
+precedence left AND;
+precedence left	PLUS, MINUS;
+precedence left TIMES;
+precedence left MOD, DIV;
+
+/* The grammar */
+program		::= command:c SEMI program:p 
+				{:	Program program = new Program((Command) c, (Program) p);
+					((Command) c).setLineNumber(cleft);
+					RESULT = program;
+				:}
+			| command:c 
+				{: Program program = new Program((Command) c);
+					((Command) c).setLineNumber(cleft);
+					RESULT = program;
+				:}
+			;
+
+command		::= SKIP
+				{: RESULT = new Skip(); :}
+			| identifier:i ASSIGN expression:e 
+				{: RESULT = new Assign((Identifier) i, (Exp) e); :}
+			| arrField:af ASSIGN expression:e
+				{: RESULT = new Assign((ArrField) af, (Exp) e); :}
+			| decl:d
+				{: RESULT = d; :}
+			| IF boolExp:b THEN program:p1 ELSE program:p2 END
+				{: RESULT = new If((BoolExp) b, (Program) p1, (Program) p2); :}
+			| IF boolExp:b THEN program:p END
+				{: RESULT = new If((BoolExp) b, (Program) p); :}
+			| WHILE boolExp:e DO program:p END
+				{: RESULT = new While((BoolExp) e, (Program) p); :}
+			| FORK LPAREN program:p LESS progVector:pv GREATER RPAREN
+				{: RESULT = new Fork((Program) p, (ProgramVector) pv); :}
+			;
+
+identifier	::= IDENTIFIER:i
+				{: RESULT = new Identifier(i); :};
+
+expression ::= atom:a
+				{: RESULT = a; :}	
+			| expression:e1 operator:o expression:e2 
+				{: RESULT = new ArithExp((Operator) o, (Exp) e1, (Exp) e2); :}
+			| LPAREN expression:e RPAREN
+				{: RESULT = e; :}
+			;
+
+atom		::= NUMBER:n
+				{: RESULT = new Int(n.intValue(), n.intValue(), null, false); :}
+			| TRUE
+				{: RESULT = new True(); :}
+			| FALSE
+				{: RESULT = new False(); :}
+			| IDENTIFIER:arr PERIOD LENGTH
+				{: RESULT = new ArrLength(arr); :}
+			| USER LBRACE IDENTIFIER:desc COMMA NUMBER:n RBRACE
+				{: RESULT = new Int(n.intValue(), n.intValue(), desc, true); :}
+			| USER LBRACE IDENTIFIER:desc COMMA NUMBER:n1 COLON NUMBER:n2 RBRACE
+				{: RESULT = new Int(n1.intValue(), n2.intValue(), desc, true); :}
+			| arrField:af
+				{: RESULT = af; :}
+			| identifier:i
+				{: RESULT = i; :}
+			;
+
+arrField	::= IDENTIFIER:i LSQBRACK expression:e RSQBRACK
+				{: RESULT = new ArrField(i, (Exp) e); :}
+	    	;
+
+operator	::= PLUS
+				{: RESULT = new Plus(); :}
+			| MINUS
+				{: RESULT = new Minus(); :}
+			| TIMES
+				{: RESULT = new Times(); :}
+			| MOD
+				{: RESULT = new Modulus(); :}
+			| DIV
+				{: RESULT = new Div(); :}
+			;
+
+decl		::= varDecl:v
+				{: RESULT = v; :}
+			| arrDecl:a
+				{: RESULT = a; :}
+			;
+
+varDecl		::= identifier:i COLON type:t COLON secDomain:s
+				{: RESULT = new VarDecl((Identifier) i, (Type) t, (SecDomain) s); :}
+			;
+
+arrDecl		::= identifier:i COLON type:t LSQBRACK NUMBER:l RSQBRACK COLON secDomain:s
+				{: RESULT = new ArrDecl((Identifier) i, l.intValue(), (Type) t, (SecDomain) s); :}
+			| identifier:i COLON type:t LSQBRACK identifier:l RSQBRACK COLON secDomain:s
+				{: RESULT = new ArrDecl((Identifier) i, (Identifier) l, (Type) t, (SecDomain) s); :}
+			;
+
+type		::= INT
+				{: RESULT = new IntegerType(); :}
+			| BOOL
+				{: RESULT = new BooleanType(); :}
+			;
+
+secDomain	::= HIGH
+				{: RESULT = new HighSec(); :}
+			| LOW
+             	{: RESULT = new LowSec(); :}
+			;
+
+boolExp    ::= expression:a1 compOp:o expression:a2 
+				{: RESULT = new CompExp((BoolOp) o, (Exp) a1, (Exp) a2); :}
+			| LPAREN boolExp:b RPAREN
+				{: RESULT = b; :}
+			| boolExp:b1 AND:o boolExp:b2 
+				{: RESULT = new CompExp((BoolOp) new And(), (Exp) b1, (Exp) b2); :}
+			| boolExp:b1 OR:o boolExp:b2 
+				{: RESULT = new CompExp((BoolOp) new Or(), (Exp) b1, (Exp) b2); :}
+			;
+
+compOp		::= LESS
+				{: RESULT = new Less(); :}
+			| LESS_EQUAL
+				{: RESULT = new LessEqual(); :}
+			| GREATER
+				{: RESULT = new Greater(); :}
+			| GREATER_EQUAL
+				{: RESULT = new GreaterEqual(); :}
+			| EQUAL_EQUAL
+				{: RESULT = new EqualEqual(); :}
+			| NOT_EQUAL
+				{: RESULT = new NotEqual(); :}
+			;
+
+progVector	::= program:p COMMA progVector:pv
+				{: RESULT = new ProgramVector((Program) p, (ProgramVector) pv); :}
+			| program:p
+				{: RESULT = new ProgramVector((Program) p); :}
+			;
